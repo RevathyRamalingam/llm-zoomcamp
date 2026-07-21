@@ -1,0 +1,76 @@
+id: 2_chat_with_rag
+namespace: zoomcamp
+
+description: |
+  This flow demonstrates RAG (Retrieval Augmented Generation) by ingesting Kestra release documentation and using it to answer questions accurately.
+
+  Compare this with 1_chat_without_rag.yaml to see the difference RAG makes!
+inputs:
+  - id: myPdfFile
+    type: FILE
+    description: "Upload your local PDF file here."
+
+tasks:
+  - id: parse_text
+    type: io.kestra.plugin.tika.Parse
+    from: "{{ inputs.myPdfFile }}" # The file uploaded via input is automatically available as a kestra:// URI
+    contentType: TEXT
+    store: false
+
+  - id: log_extracted_text
+    type: io.kestra.plugin.core.log.Log
+    message: "{{ outputs.parse_text.result.content }}"
+
+  - id: ingest_document_with_embeddings
+    type: io.kestra.plugin.ai.rag.IngestDocument
+    provider:
+      type: io.kestra.plugin.ai.provider.GoogleGemini
+      modelName: gemini-embedding-001
+      apiKey: "{{ secret('GEMINI_API_KEY') }}" # Ensure you have a secret named GEMINI_API_KEY configured
+    embeddings:
+      type: io.kestra.plugin.ai.embeddings.KestraKVStore # Using KestraKVStore for demonstration
+    drop: true # Clear the store before ingestion (useful for testing)
+    documentSplitter:
+      splitter: RECURSIVE # Recommended for generic text
+      maxSegmentSizeInChars: 4096
+      maxOverlapSizeInChars: 200
+    fromDocuments:
+      - content: "{{ outputs.parse_text.result.content }}" # CORRECTED: Changed 'parse_pdf_content' to 'parse_text'
+
+  - id: chat_with_rag
+    type: io.kestra.plugin.ai.rag.ChatCompletion
+    description: Query about Kestra 1.1 features with RAG context
+    chatProvider:
+      type: io.kestra.plugin.ai.provider.GoogleGemini
+      modelName: gemini-2.5-flash
+      apiKey: "{{ secret('GEMINI_API_KEY') }}"
+    embeddingProvider:
+      type: io.kestra.plugin.ai.provider.GoogleGemini
+      modelName: gemini-embedding-001
+      apiKey: "{{ secret('GEMINI_API_KEY') }}"
+    embeddings:
+      type: io.kestra.plugin.ai.embeddings.KestraKVStore
+    systemMessage: |
+      You are a helpful assistant that answers questions about the ingested document
+      Use the provided documentation to give accurate, specific answers.
+      If you don't find the information in the context, say so.
+    prompt: |
+      What is Relation and Function?
+
+  - id: log_results
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      ✅ RAG Response (with retrieved context):
+      {{ outputs.chat_with_rag.textOutput }}
+
+  - id: log_token_usage
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      📊 Token Usage Summary:
+
+      Agent:
+      - Input tokens: {{ outputs.chat_with_rag.tokenUsage.inputTokenCount }}
+      - Output tokens: {{ outputs.chat_with_rag.tokenUsage.outputTokenCount }}
+      - Total tokens: {{ outputs.chat_with_rag.tokenUsage.totalTokenCount }}
+
+   

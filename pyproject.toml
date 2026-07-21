@@ -8,3 +8,8 @@ dependencies = [
     "gitsource>=0.0.5",
     "toyaikit>=0.0.11",
 ]
+
+[tool.uv.workspace]
+members = [
+    "dlt_workshop",
+]
